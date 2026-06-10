@@ -12,44 +12,43 @@ def _dsd_kernel(
     values_ptr, row_offsets_ptr, col_indices_ptr,
     B_ptr, C_ptr,
     M, K, N, block: tl.constexpr,
-    sv0, sv1, sv2,   # strides for values
-    sb0, sb1,        # strides for B
-    sc0, sc1,        # strides for C
+    sv0, sv1, sv2,
+    sb0, sb1,
+    sc0, sc1,
     BLOCK_N: tl.constexpr,
+    TILE: tl.constexpr,
 ):
-    pid_row = tl.program_id(0)  # 第几个block-row
-    pid_col = tl.program_id(1)  # 沿着N方向的第几个tile
+    pid_row = tl.program_id(0)
+    pid_col = tl.program_id(1)
 
-    row_start = pid_row * block
-    col_start = pid_col * BLOCK_N
+    offs_m = pid_row * block + tl.arange(0, block)
+    offs_n = pid_col * BLOCK_N + tl.arange(0, BLOCK_N)
 
-    offs_m = row_start + tl.arange(0, block)    # 这个block-row对应的output行
-    offs_n = col_start + tl.arange(0, BLOCK_N)  # 这个tile对应的output列
+    acc = tl.zeros((block, BLOCK_N), dtype=tl.float32)
 
-    acc = tl.zeros((block, BLOCK_N), dtype=tl.float32)  # accumulator
-
-    lo = tl.load(row_offsets_ptr + pid_row)      # 这一行的live block从哪开始
-    hi = tl.load(row_offsets_ptr + pid_row + 1)  # 到哪结束
+    lo = tl.load(row_offsets_ptr + pid_row)
+    hi = tl.load(row_offsets_ptr + pid_row + 1)
 
     for idx in range(lo, hi):
-        k_block = tl.load(col_indices_ptr + idx)  # 这个live block在K方向的位置
+        k_block = tl.load(col_indices_ptr + idx)
         k_start = k_block * block
 
-        # 把A的这个block load进来，shape是(block, block)
-        a_ptrs = (values_ptr
-                  + idx * sv0
-                  + tl.arange(0, block)[:, None] * sv1
-                  + tl.arange(0, block)[None, :] * sv2)
-        a_blk = tl.load(a_ptrs)
+        for t in range(block // TILE):
+            offs_t = t * TILE + tl.arange(0, TILE)
 
-        # load对应的B tile，shape是(block, BLOCK_N)
-        offs_k = k_start + tl.arange(0, block)
-        b_ptrs = B_ptr + offs_k[:, None] * sb0 + offs_n[None, :] * sb1
-        b_blk = tl.load(b_ptrs,
-                         mask=(offs_k[:, None] < K) & (offs_n[None, :] < N),
-                         other=0.0)
+            a_ptrs = (values_ptr
+                      + idx * sv0
+                      + tl.arange(0, block)[:, None] * sv1
+                      + offs_t[None, :] * sv2)
+            a_blk = tl.load(a_ptrs)
 
-        acc += tl.dot(a_blk, b_blk, allow_tf32=False)  # 题目要求不能用tf32
+            offs_k = k_start + offs_t
+            b_ptrs = B_ptr + offs_k[:, None] * sb0 + offs_n[None, :] * sb1
+            b_blk = tl.load(b_ptrs,
+                             mask=(offs_k[:, None] < K) & (offs_n[None, :] < N),
+                             other=0.0)
+
+            acc += tl.dot(a_blk, b_blk, allow_tf32=False)
 
     c_ptrs = C_ptr + offs_m[:, None] * sc0 + offs_n[None, :] * sc1
     tl.store(c_ptrs, acc, mask=(offs_m[:, None] < M) & (offs_n[None, :] < N))
@@ -58,7 +57,8 @@ def _dsd_kernel(
 def dsd_matmul(values, row_offsets, column_indices, B, M, K, N, block):
     C = torch.zeros(M, N, device=B.device, dtype=torch.float32)
 
-    BLOCK_N = min(32, triton.next_power_of_2(N))
+    BLOCK_N = 32
+    TILE = 32
     grid = (M // block, triton.cdiv(N, BLOCK_N))
 
     _dsd_kernel[grid](
@@ -68,6 +68,7 @@ def dsd_matmul(values, row_offsets, column_indices, B, M, K, N, block):
         B.stride(0), B.stride(1),
         C.stride(0), C.stride(1),
         BLOCK_N=BLOCK_N,
+        TILE=TILE,
         num_stages=1,
         num_warps=4,
     )
