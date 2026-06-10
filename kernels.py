@@ -1,24 +1,3 @@
-"""STUDENT FILE: implement the three block-sparse rung functions.
-
-Implement these three functions from the spec in ALGORITHMS.md -- no reference
-code is shipped:
-
-  dsd_matmul             (A1) block-sparse (BCSR) A @ dense B -> dense C
-  sparse_flash_forward   (A2) block-sparse flash attention forward
-  sparse_flash_backward  (A3) block-sparse flash attention backward
-
-Your functions must match the signatures below: the SHAPES and DTYPES of the
-inputs and outputs (each docstring states them; ALGORITHMS.md sec 0.1 collects
-them). EVERYTHING ELSE IS YOURS -- how many @triton.jit kernels you write, the
-grid, the (B, H) flatten, strides, output allocation, and the launch/tuning. The
-grader asserts the returned shapes and dtypes, then checks correctness against an
-fp64 reference.
-
-ALGORITHMS.md is the complete spec: the BCSR layout and its two transpose views,
-what each output equals, and the five backward equations.
-
-When `python sanity_check.py` passes all three rungs, you're done.
-"""
 import torch
 import triton
 import triton.language as tl
