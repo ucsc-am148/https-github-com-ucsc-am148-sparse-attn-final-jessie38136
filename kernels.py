@@ -68,6 +68,8 @@ def dsd_matmul(values, row_offsets, column_indices, B, M, K, N, block):
         B.stride(0), B.stride(1),
         C.stride(0), C.stride(1),
         BLOCK_N=BLOCK_N,
+        num_stages=1,
+        num_warps=4,
     )
     return C
 
