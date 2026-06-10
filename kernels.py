@@ -58,7 +58,7 @@ def _dsd_kernel(
 def dsd_matmul(values, row_offsets, column_indices, B, M, K, N, block):
     C = torch.zeros(M, N, device=B.device, dtype=torch.float32)
 
-    BLOCK_N = min(128, triton.next_power_of_2(N))
+    BLOCK_N = min(64, triton.next_power_of_2(N))
     grid = (M // block, triton.cdiv(N, BLOCK_N))
 
     _dsd_kernel[grid](
